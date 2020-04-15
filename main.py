@@ -1,15 +1,15 @@
+import argparse
 import itertools
 import matplotlib.pyplot as plt
-import pandas as pd
 import os
+import pandas as pd
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from multiprocessing import Pool
 from urllib import request, parse
 
 
-def main():
-    pool = Pool(8)
+def main(pool):
     print('Started at: {}'.format(datetime.now().time()))
     # load raw html data pages
     raw_htmls = load_data(pool, [2018, 2019], ['M', 'W'], [6, 10, 21])
@@ -17,7 +17,8 @@ def main():
     # parse table as numpy matrix
     raw_data = {key: parse_raw_htmls(pool, rh) for key, rh in raw_htmls.items()}
     print('Parsing completed at: {}'.format(datetime.now().time()))
-    pool.terminate()
+    if pool:
+        pool.terminate()
     # feed it to pandas and visualize:
     visualize('2T', raw_data)
 
@@ -37,7 +38,10 @@ def load_data(pool, years, sexes, distances):
                     page = i + 1
                     key = '{}-{}'.format(key_common, page)
                     links_to_process.append((key, make_search_link(y, s, d, page)))
-                htmls[key_common] = pool.map(load_html, links_to_process)
+                if pool:
+                    htmls[key_common] = pool.map(load_html, links_to_process)
+                else:
+                    htmls[key_common] = map(load_html, links_to_process)
     return htmls
 
 
@@ -81,8 +85,12 @@ def load_html(key_and_url):
 
 
 def parse_raw_htmls(pool, htmls):
-    times = list(itertools.chain.from_iterable(pool.map(parse_raw_html, htmls)))
-    results = pd.to_timedelta(times)
+    times = None
+    if pool:
+        times = pool.map(parse_raw_html, htmls)
+    else:
+        times = map(parse_raw_html, htmls)
+    results = pd.to_timedelta(list(itertools.chain.from_iterable(times)))
     return results
 
 
@@ -132,4 +140,13 @@ def visualize(rounding, raw_data):
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--parallel', type=int, help='number of threads to parallelize script')
+    args = parser.parse_args()
+    if args.parallel:
+        print('Running script in parallel', args.parallel)
+        pool = Pool(args.parallel)
+        main(pool)
+    else:
+        print('Running script sequentially')
+        main(None)
